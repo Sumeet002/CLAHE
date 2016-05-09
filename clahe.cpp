@@ -1,3 +1,45 @@
+/*M///////////////////////////////////////////////////////////////////////////////////////
+//
+//  IMPORTANT: READ BEFORE DOWNLOADING, COPYING, INSTALLING OR USING.
+//
+//  By downloading, copying, installing or using the software you agree to this license.
+//  If you do not agree to this license, do not download, install,
+//  copy or use the software.
+//
+//
+//                           License Agreement
+//                For Open Source Computer Vision Library
+//
+// Copyright (C) 2013, NVIDIA Corporation, all rights reserved.
+// Copyright (C) 2014, Itseez Inc., all rights reserved.
+// Third party copyrights are property of their respective owners.
+//
+// Redistribution and use in source and binary forms, with or without modification,
+// are permitted provided that the following conditions are met:
+//
+//   * Redistribution's of source code must retain the above copyright notice,
+//     this list of conditions and the following disclaimer.
+//
+//   * Redistribution's in binary form must reproduce the above copyright notice,
+//     this list of conditions and the following disclaimer in the documentation
+//     and/or other materials provided with the distribution.
+//
+//   * The name of the copyright holders may not be used to endorse or promote products
+//     derived from this software without specific prior written permission.
+//
+// This software is provided by the copyright holders and contributors "as is" and
+// any express or implied warranties, including, but not limited to, the implied
+// warranties of merchantability and fitness for a particular purpose are disclaimed.
+// In no event shall the copyright holders or contributors be liable for any direct,
+// indirect, incidental, special, exemplary, or consequential damages
+// (including, but not limited to, procurement of substitute goods or services;
+// loss of use, data, or profits; or business interruption) however caused
+// and on any theory of liability, whether in contract, strict liability,
+// or tort (including negligence or otherwise) arising in any way out of
+// the use of this software, even if advised of the possibility of such damage.
+//
+//M*/
+
 #include "opencv2/highgui/highgui.hpp"
 #include <opencv2/imgproc/imgproc.hpp>
 #include <iostream>
@@ -7,87 +49,9 @@ using namespace cv;
 using namespace std;
 
 
-void calcLutBody(const cv::Mat& src, const cv::Mat& lut, const cv::Size& tileSize, const int& tilesX, const int& clipLimit, const float& lutScale){
-	
-	unsigned char *tileLut = lut.ptr<uchar>(0);
-        const size_t lut_step = lut.step / sizeof(uchar);
 
 
-        for(int k = 0 ; k < tileSize.width*tileSize.height ; ++k,tileLut+=lut_step){
-	    const int ty = k / tilesX;
-            const int tx = k % tilesX;	
 
-	    // retrieve tile submatrix
-            Rect tileROI;
-            tileROI.x = tx * tileSize.width;
-            tileROI.y = ty * tileSize.height;
-            tileROI.width = tileSize.width;
-            tileROI.height = tileSize.height;
-
-	    const Mat tile = src(tileROI);
-	    
-	    // calc histogram
-	    int tileHist[histSize] = {0,};
-	    int height = tileROI.height;
-            const size_t sstep = src.step / sizeof(uchar);
-            for (const uchar* ptr = tile.ptr<uchar>(0); height--; ptr += sstep){
-	    	int x = 0;
-                for (; x <= tileROI.width - 4; x += 4){
-                    int t0 = ptr[x], t1 = ptr[x+1];
-                    tileHist[t0]++; tileHist[t1]++;
-                    t0 = ptr[x+2]; t1 = ptr[x+3];
-                    tileHist[t0]++; tileHist[t1]++;
-                }
-
-                for (; x < tileROI.width; ++x)
-                    tileHist[ptr[x]]++;
-		
-	    }
-
-	    // clip histogram
-	    if(clipLimit > 0){
-
-		// how many pixels were clipped
-                int clipped = 0;
-		for (int i = 0; i < histSize; ++i){
-                    if (tileHist[i] > clipLimit)
-                    {
-                        clipped += tileHist[i] - clipLimit;
-                        tileHist[i] = clipLimit;
-                    }
-                }
-
-	       // redistribute clipped pixels
-                int redistBatch = clipped / histSize;
-                int residual = clipped - redistBatch * histSize;
-
-                for (int i = 0; i < histSize; ++i)
-                    tileHist[i] += redistBatch;
-
-                for (int i = 0; i < residual; ++i)
-                    tileHist[i]++;
-            }
-
-	    // calc Lut
-	    int sum = 0;
-            for (int i = 0; i < histSize; ++i)
-            {
-                sum += tileHist[i];
-                tileLut[i] = cv::saturate_cast<uchar>(sum * lutScale);
-            }
-       }
-
-}
-
-void Interpolate(const cv::Mat& src, const cv::Mat& dst, const cv::Mat& lut, const cv::Size& tileSize, const int& tilesX, const int& tilesY){
-
-	AutoBuffer<int> buf;
-	int * ind1_p, * ind2_p;
-        float * xa_p, * xa1_p;
-	
-
-
-}
 
 
 int main(int argc, char* argv[])
@@ -109,8 +73,8 @@ int main(int argc, char* argv[])
 
         //Tile size
         Size tileGridSize(8,8);
-        tilesX = tileGridSize.width;
-        tilesY = tileGridSize.height;
+        int tilesX = tileGridSize.width;
+        int tilesY = tileGridSize.height;
         Size tileSize;
        
         Mat src_Ext,lut,dst;
@@ -121,6 +85,7 @@ int main(int argc, char* argv[])
         if(src.size().width % tilesX == 0 && src.size().height % tilesY == 0){
         	srcForLut = src ;
         }
+	//else create a padding on all sides of image to make it divisible by tileSize
         else{
 		cv::copyMakeBorder(src,src_Ext,0,tilesY - (src.size().height % tilesY),0,tilesX - (src.size().width % tilesX),cv::BORDER_REFLECT_101);
                 tileSize = Size(src_Ext.size().width/tilesX,src_Ext.size().height/tilesY);
@@ -137,22 +102,15 @@ int main(int argc, char* argv[])
         }
    
         
-        dst.create(src.size(),src.type());	
-        lut.create(tilesX*tilesY,histSize,src.type());
+        dst.create(src.size(),src.type()); //Create dst image with same type and size as src image	
+        lut.create(tilesX*tilesY,histSize,src.type());  //Create the look-up-table matrix
 
-        calcLutBody(srcForLut, lut, tileSize, tilesX, clipLimit, lutScale);
+        calcLutBody(srcForLut, lut, tileSize, tilesX, clipLimit, lutScale); 
         Interpolate(src, dst, lut, tileSize, tilesX, tilesY);
-
-        
-       
-
-
-
-	static Mat O_HIST(src.rows,src.cols,CV_8UC1,Scalar(0));
 
 
 	while(true){
-		imshow("Adaptive Histogram Equalized Image",O_HIST);
+		imshow("CLAHE Image",dst);
 		waitKey(30);
 	}
 
